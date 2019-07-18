@@ -1,0 +1,170 @@
+----
+title: "TX Diversity Growth Map"
+author: "Carolina Mountain"
+date: "7/9/2019"
+output: pdf_document
+---
+
+# Matt's Comments
+
+Hey Carolina,
+
+Just going through your code this morning and have a few suggestions. I've enumerated them with a `#<-- EDIT X` so that each suggestion described below corresponds to the number marked in each suggestion.
+
+* **Edit 1:** For installing packages, either run the function in your console or just use the packages tab. Removing these from your code will make your code cleaner.
+* **Edit 2:** I notice that you name your code chunks in this fashion `{r, [chunk_name]}`. Chunk names should be placed before the first comma. If placed after that first comma, it will not recognize the chunk name and think you're assigning the chunk an unknown option. While it looks like it wasn't giving most chunks errors, it could potentially create errors that you might not recognize if your code is right but the chunk nanme syntax is wrong.
+* **Edit 3:** Breaking up each of your mutations so they each have their own line will make your code easier to read. Mostly for you, but also for others. In the moment, it might not seem like a big deal, but a few months from now when you're working on a different project that's similar to this one, your code will be easier to read and you'll get what you need a lot quicker.
+* **Edit 4:** You can use the `mutate()` function from `dplyr` to reclassify column types. See how I did this in the code below.
+
+***
+
+# Carolina's Code
+
+```{r setup, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+#install.packages("tidyverse")      #<-- EDIT 1
+#install.packages("gglot2")         #<-- EDIT 1
+#install.packages("leaflet")        #<-- EDIT 1
+#install.packages("sf")             #<-- EDIT 1 
+#install.packages("tidycensus")     #<-- EDIT 1
+#install.packages("tigris")         #<-- EDIT 1
+#install.packages("janitor")        #<-- EDIT 1
+#install.packages("viridis")        #<-- EDIT 1
+#install.packages("widgetframe")    #<-- EDIT 1
+#install.packages("leaflet.extras") #<-- EDIT 1
+#install.packages("RColorBrewer")   #<-- EDIT 1
+
+library(stringr)
+library(sf)
+library(leaflet)
+library(tidycensus)
+library(tidyverse)
+library(janitor)
+library(leaflet)
+library(RColorBrewer)
+library(scales)
+library(leaflet.extras)
+library(sf)
+library(viridis)
+library(widgetframe)
+library(tidyverse)
+library(leaflet)
+library(dichromat)
+library(sf)
+library(tidycensus)
+library(tigris)
+library(RColorBrewer)
+library(htmlwidgets)
+library(htmltools)
+census_api_key("11dbf2281786a9eaa313809d1e5f17ac45be47c9")
+
+```
+
+ <!-- EDIT 2: Look at the name of your code chunk below and see my edit at the top. -->
+```{r data prep, message=FALSE, warning=TRUE, include=FALSE}
+
+data <- read.csv("Axios Diversity Data.csv") %>% 
+  mutate(overall_change=((sdi2017-sdi2009)/sdi2009), 
+         pct_change = scales::percent(overall_change)) %>% #<-- EDIT 3
+  rename(GEOID = fips) %>% 
+  mutate(name = gsub(pattern=", Texas", replacement = " County",x=name),
+         GEOID = as.character(GEOID)) #<-- EDIT 4
+
+# data$GEOID <- as.character(data$GEOID) #<-- EDIT 4
+
+geometries <- get_acs(geography = "county", 
+                   variables = "B01003_001",
+                   year = 2017,
+                   state = "TX", 
+                   geometry = TRUE) %>% 
+  select(GEOID,geometry) %>%  
+  geo_join(data, by = "GEOID", how="left") %>%
+  select(-rank) %>% 
+  st_transform(crs = "+init=epsg:4326")
+
+```
+
+
+```{r static map}
+geometries %>% 
+  ggplot(aes(fill = overall_change)) + 
+  geom_sf(color = NA) + 
+  scale_fill_viridis_c(option = "BrBG") +
+  theme(plot.caption = element_text(size = 6)) #+ 
+  #ggsave("TX Diversity Growth.jpeg",width = 15, height = 8, units = "cm", dpi = 300)
+
+```
+
+***
+
+```{r leaflet including outliers}
+
+div_growth <- geometries %>% 
+  select(1,2,3, 13,14) %>% 
+  mutate_at(vars(X2017_population), scales::comma)
+
+colorrange <- c(-.60,.60)
+pal_clean <- colorNumeric(palette = colorschemes$BluetoOrange.12, domain = colorrange, reverse = TRUE)
+
+labels_clean <- sprintf("<a style = 'font-family: Titillium Web; font-size: 22px; font-weight: 700; color:#5da5da'>%s</a> <br/><a style = 'font-family: Titillium Web; font-size: 16px; font-weight: 400; color:#4d4d4d'>Diversity Growth</a><br/><a style = 'font-family: Titillium Web; font-size: 12px; font-weight: 400; color:#6d6d6d'>(Between 2009-2017)</a><br/><hr><a style = 'font-family: Titillium Web; font-size: 24px; font-weight: 700; color:#4d4d4d'>%s</a><a style = 'font-family: Titillium Web; font-size: 24px; font-weight: 400; color:#9d9d9d'> Change</a><br/><hr><a style = 'font-family: Titillium Web; font-size: 24px; font-weight: 700; color:#4d4d4d'>%s</a><a style = 'font-family: Titillium Web; font-size: 24px; font-weight: 400; color:#9d9d9d'> Population</a><br/>",
+                  div_growth$name,
+                  div_growth$pct_change,
+                  div_growth$X2017_population) %>%
+  lapply(htmltools::HTML)
+
+tx <- tidycensus::state_laea %>% 
+  filter(GEOID=="48") %>% 
+  st_transform(crs = "+init=epsg:4326")
+
+div_map <- leaflet(div_growth, width = "100%", height = "600px", options = leafletOptions(zoomControl = FALSE, minZoom = 6, maxZoom = 6)) %>%
+  addTiles(urlTemplate = "https://api.mapbox.com/styles/v1/mrw03b/cjvfr58le99nk1gp3ryxmnvd3/tiles/256/{z}/{x}/{y}@2x?access_token=pk.eyJ1IjoibXJ3MDNiIiwiYSI6IlYwb2FiOWcifQ.RWUm2a87fEC9XrDxzvZKKg",
+           attribution = 'Tiles by <a href="http://www.mapbox.com/">Mapbox</a> | Map by <a href="http://www.texas2036.org/">Texas 2036</a>') %>%
+  addPolygons(data = div_growth,
+              stroke = 0,
+              smoothFactor = 0,
+              group='div_growth',
+              fill = TRUE,
+              fillColor = ~pal_clean(overall_change),
+              fillOpacity = 1,
+              label = labels_clean,
+              labelOptions = labelOptions(
+                style = list("font-family" = "Titillium Web", 
+                             "font-weight" = "normal",
+                             "text-align" = "left",
+                             "line-height" = "1.3",
+                             padding = "3px 8px"),
+                textsize = "18px",
+                direction = "auto")) %>% 
+  addPolygons(data = tx,
+              stroke = 1,
+              color = "#3d3d3d",
+              fill = FALSE) %>%
+  addLegend("bottomleft", 
+            pal = pal_clean, 
+            values = ~colorrange,
+            labFormat = labelFormat(
+              suffix = "%",
+              transform = function(x) 100 * x),
+            title = "% Change in Diversity", 
+            opacity = 1) %>% 
+  addControl("<style> @import url('https://fonts.googleapis.com/css?family=Titillium+Web:400,700&display=swap');</style><img src='https://texas2036.org/wp-content/uploads/2018/09/texas2036-color-logo.svg' style='height:22px' class='custom-logo' alt='Texas 2036 Logo' itemprop='logo'></br><a style='font-family: Titillium Web; font-size: 22px; font-weight:700; color:#004A99'>Instructions</a><hr><strong style='font-family: Titillium Web; font-size: 16px'>Find Your County:</strong><a style='font-family: Titillium Web; font-size: 16px';'> Click the <span class='fa fa-search'></span> icon </a></br><strong style='font-family: Titillium Web; font-size: 16px'>Reset The Map:</strong><a style='font-family: Titillium Web; font-size: 16px';'> Click the <span class='fa fa-home'></span> icon</a></div>",position='topleft') %>% 
+  addSearchFeatures(
+    targetGroups = 'div_growth',
+    options = searchFeaturesOptions(
+      textPlaceholder="Type Your County Name...", 
+      moveToLocation = FALSE,
+      openPopup = TRUE, 
+      firstTipSubmit = TRUE,
+      autoCollapse = TRUE, 
+      hideMarkerOnCollapse = FALSE)) %>% 
+  addEasyButton(easyButton(
+    icon = 'fa-home fa-lg',
+    title = 'Reset View',
+    onClick = JS("function(btn, map){ map.setView([31.3686,-99.9018],6); }"))) %>%
+  setMapWidgetStyle(list(background='white')) 
+
+div_map
+
+htmlwidgets::saveWidget(frameableWidget(div_map), file = "tx_diversity_map_alt.html", selfcontained = TRUE, background = "white")
+```
+
